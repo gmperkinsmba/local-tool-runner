@@ -1,15 +1,33 @@
 #!/usr/bin/env python3
 """Local-only controller for a small allowlist of safe fixture processes."""
-import atexit, fcntl, http.server, json, os, pty, select, secrets, shutil, signal, struct, subprocess, sys, termios, threading, time
+import atexit, fcntl, http.server, json, os, pty, select, secrets, shutil, signal, stat, struct, subprocess, sys, termios, threading, time
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent
 RESOURCE_ROOT=Path(getattr(sys,"_MEIPASS",ROOT))
-DATA=Path(os.environ.get("LOCAL_CONSOLE_DATA",Path.home()/".local/share/local-console"))
+DATA=Path(os.environ.get("LOCAL_CONSOLE_DATA",Path.home()/".local/share/local-console")).expanduser()
 PORT=int(os.environ.get("LOCAL_CONSOLE_PORT","8314"))
 MAX_BODY=4096; MAX_OUTPUT=64*1024; MAX_ACTIVE=4; MAX_HISTORY=12; TIMEOUTS=(30,60,120)
 PROFILES={"progress":"Progress fixture","runtime":"Python runtime report","checksum":"Synthetic file checksums","tree":"Process tree fixture","output":"Output limit fixture"}
-DATA.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(DATA,0o700)
+def ensure_private_runtime(path):
+    try:
+        info=path.lstat()
+        if stat.S_ISLNK(info.st_mode): raise RuntimeError("Runtime directory cannot be a symbolic link.")
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.getuid(): raise RuntimeError("Runtime directory must be owned by this user.")
+    except FileNotFoundError:
+        path.mkdir(parents=True,exist_ok=False,mode=0o700)
+    fd=os.open(path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0))
+    try:
+        info=os.fstat(fd)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=os.getuid(): raise RuntimeError("Runtime directory must be owned by this user.")
+        os.fchmod(fd,0o700)
+        if stat.S_IMODE(os.fstat(fd).st_mode)!=0o700: raise RuntimeError("Runtime directory permissions could not be secured.")
+    except Exception:
+        os.close(fd)
+        raise
+    else: os.close(fd)
+
+ensure_private_runtime(DATA)
 LOCK=threading.RLock(); SESSIONS={}; TOKEN=secrets.token_urlsafe(32)
 
 def cleanup_all():
