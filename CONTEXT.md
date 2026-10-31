@@ -1,4 +1,4 @@
-# Local Console model
+# Local Tool Runner model
 
 - A session is one allowlisted worker process, one pseudo-terminal, a label, a bounded time limit, and a bounded output buffer.
 - A profile names a fixed program behavior. Profiles map to a fixed worker function and cannot receive user-supplied arguments.

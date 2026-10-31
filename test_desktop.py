@@ -11,7 +11,7 @@ from desktop_policy import navigation_policy
 
 class DesktopTests(unittest.TestCase):
     def test_product_identity(self):
-        self.assertEqual(APP_NAME, "Local Console")
+        self.assertEqual(APP_NAME, "Local Tool Runner")
         self.assertEqual(BUNDLE_ID, "io.github.gmperkinsmba.local-console")
 
     def test_notices_contain_verified_text_and_exclude_binary_files(self):
@@ -21,7 +21,7 @@ class DesktopTests(unittest.TestCase):
             notices = destination.read_text(encoding="utf-8")
         self.assertNotIn("\x00", notices)
         self.assertNotIn("copying.cpython-312-darwin.so.dSYM", notices)
-        self.assertIn("Local Console desktop dependencies", notices)
+        self.assertIn("Local Tool Runner desktop dependencies", notices)
         self.assertIn("Python runtime 3.12.14", notices)
 
     def test_server_bind_skips_reverse_dns_lookup(self):

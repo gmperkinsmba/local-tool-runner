@@ -173,12 +173,12 @@ def make_server(host="127.0.0.1", port=PORT):
             self.server_port = self.socket.getsockname()[1]
 
     if host != "127.0.0.1":
-        raise ValueError("Local Console only binds to loopback")
+        raise ValueError("Local Tool Runner only binds to loopback")
     return LocalThreadingHTTPServer((host, port), Handler)
 
 
 if __name__=="__main__":
-    print(f"Local Console listening at http://127.0.0.1:{PORT}",flush=True)
+    print(f"Local Tool Runner listening at http://127.0.0.1:{PORT}",flush=True)
     server=make_server(port=PORT)
     def shutdown(signum,frame): cleanup_all(); raise SystemExit(0)
     signal.signal(signal.SIGTERM,shutdown)
