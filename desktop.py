@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native macOS shell and frozen worker entry point for Local Console."""
+"""Native macOS shell and frozen worker entry point for Local Tool Runner."""
 from __future__ import annotations
 
 import sys
@@ -30,7 +30,7 @@ def run() -> None:
         origin = f"http://127.0.0.1:{httpd.server_port}"
         install_policy(origin)
         webview.create_window(
-            "Local Console",
+            "Local Tool Runner",
             f"{origin}/?desktop=1",
             width=1080,
             height=760,
@@ -53,8 +53,8 @@ if __name__ == "__main__":
         import AppKit
 
         alert = AppKit.NSAlert.alloc().init()
-        alert.setMessageText_("Local Console could not start")
-        alert.setInformativeText_("The local app failed to open. Restart Local Console and try again.")
+        alert.setMessageText_("Local Tool Runner could not start")
+        alert.setInformativeText_("The local app failed to open. Restart Local Tool Runner and try again.")
         alert.addButtonWithTitle_("OK")
         alert.runModal()
         raise SystemExit(1)

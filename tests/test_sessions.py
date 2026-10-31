@@ -113,7 +113,7 @@ class Sessions(unittest.TestCase):
             client.request("GET","/?desktop=1",headers={"Host":f"127.0.0.1:{self.port}"})
             response=client.getresponse();page=response.read().decode()
             self.assertEqual(response.status,200);self.assertIn('class="native-shell"',page)
-            self.assertIn("Local Console",page)
+            self.assertIn("Local Tool Runner",page)
             client.request("GET","/app.css",headers={"Host":f"127.0.0.1:{self.port}"})
             css=client.getresponse();style=css.read().decode()
             self.assertIn("body.native-shell",style)
