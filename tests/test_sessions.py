@@ -1,4 +1,5 @@
-import fcntl, http.client, importlib.util, json, os, pty, struct, subprocess, tempfile, threading, time, unittest
+import fcntl, http.client, importlib.util, json, os, pty, struct, subprocess, sys, tempfile, threading, time, unittest
+from unittest.mock import patch
 from pathlib import Path
 
 BASE=Path(__file__).resolve().parents[1]
@@ -6,6 +7,18 @@ TEMP=tempfile.TemporaryDirectory(); os.environ["LOCAL_CONSOLE_DATA"]=TEMP.name
 spec=importlib.util.spec_from_file_location("local_console_server",BASE/"server.py"); app=importlib.util.module_from_spec(spec); spec.loader.exec_module(app)
 
 class Sessions(unittest.TestCase):
+    def test_symlink_runtime_is_rejected_without_changing_target_permissions(self):
+        with tempfile.TemporaryDirectory() as root:
+            target=Path(root)/"target"; target.mkdir(mode=0o755); os.chmod(target,0o755)
+            link=Path(root)/"runtime"; link.symlink_to(target,target_is_directory=True)
+            env={**os.environ,"LOCAL_CONSOLE_DATA":str(link)}
+            run=subprocess.run([sys.executable,"-c","import server"],cwd=BASE,env=env,capture_output=True,text=True)
+            self.assertNotEqual(run.returncode,0); self.assertIn("symbolic link",run.stderr)
+            self.assertEqual(target.stat().st_mode & 0o777,0o755)
+            with patch("server.os.getuid",return_value=target.stat().st_uid+1):
+                with self.assertRaisesRegex(RuntimeError,"owned by this user"):app.ensure_private_runtime(target)
+            self.assertEqual(target.stat().st_mode & 0o777,0o755)
+
     @classmethod
     def setUpClass(cls):
         cls.http=app.make_server(port=0); cls.port=cls.http.server_port
