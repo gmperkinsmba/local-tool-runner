@@ -6,13 +6,32 @@ Local Console runs a short allowlist of harmless tools in named sessions. Each s
 
 ## Run
 
-Requires Python 3 on macOS or Linux. The backend uses only the Python standard library.
+Open `~/Applications/Local Console.app` in Finder. The app bundles Python and starts its loopback service when the window opens. No separate Python install, browser tab, or manual server command is needed. Close the window or press Command-Q to stop the service and any sessions started by this app. Session output and records exist only in memory; isolated session folders remain under `~/.local/share/local-console/sessions`.
+
+The installed app is unsigned. macOS may ask you to confirm the first launch in Privacy & Security. To uninstall, quit Local Console and move only `~/Applications/Local Console.app` to Trash. The runtime session folders are separate and are not removed.
+
+**Browser alternative**
+
+The source browser mode uses Python 3.10 or newer and the standard library. Linux browser compatibility is not validated by this desktop delivery.
 
 ```sh
 python3 server.py
 ```
 
-Open http://127.0.0.1:8314. The listener binds to loopback. Only the listed profiles can start. The app has no shell or free-form commands. You cannot pass command arguments or process input. You cannot choose an arbitrary path.
+Open http://127.0.0.1:8314. The listener binds to loopback. Only the listed profiles can start. The app has no shell or free-form commands. You cannot pass command arguments or process input. You cannot choose an arbitrary path. Stop the source server with Ctrl+C.
+
+**Build from source**
+
+On macOS, use Python 3.12 with the pinned desktop requirements:
+
+```sh
+uv venv .desktop-venv --python 3.12
+uv pip install --python .desktop-venv/bin/python -r requirements-desktop.lock.txt
+.desktop-venv/bin/python build_desktop.py
+.desktop-venv/bin/python install_desktop.py
+```
+
+The build emits `dist/Local Console.app` and refuses to replace an app without its ownership marker. Native builds target macOS; Linux builds are not supported or tested here.
 
 ## Profiles and limits
 

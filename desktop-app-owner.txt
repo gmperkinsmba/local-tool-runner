@@ -1,0 +1,3 @@
+Local Console desktop bundle
+io.github.gmperkinsmba.local-console
+local-build-owner-marker-v1

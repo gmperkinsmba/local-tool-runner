@@ -4,6 +4,7 @@ import atexit, fcntl, http.server, json, os, pty, select, secrets, shutil, signa
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent
+RESOURCE_ROOT=Path(getattr(sys,"_MEIPASS",ROOT))
 DATA=Path(os.environ.get("LOCAL_CONSOLE_DATA",Path.home()/".local/share/local-console"))
 PORT=int(os.environ.get("LOCAL_CONSOLE_PORT","8314"))
 MAX_BODY=4096; MAX_OUTPUT=64*1024; MAX_ACTIVE=4; MAX_HISTORY=12; TIMEOUTS=(30,60,120)
@@ -89,29 +90,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self,*_): pass
     def send_json(self,status,obj):
         data=json.dumps(obj).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(data))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(data)
-    def host_ok(self): return self.headers.get("Host") in (f"127.0.0.1:{PORT}",f"localhost:{PORT}")
+    def host_ok(self): return self.headers.get("Host") in (f"127.0.0.1:{self.server.server_port}",f"localhost:{self.server.server_port}")
     def state_boundary(self):
         origin=self.headers.get("Origin")
-        return self.host_ok() and origin in (f"http://127.0.0.1:{PORT}",f"http://localhost:{PORT}") and secrets.compare_digest(self.headers.get("X-Console-Request",""),TOKEN)
+        return self.host_ok() and origin in (f"http://127.0.0.1:{self.server.server_port}",f"http://localhost:{self.server.server_port}") and secrets.compare_digest(self.headers.get("X-Console-Request",""),TOKEN)
     def get_boundary(self):
         origin=self.headers.get("Origin")
-        return self.host_ok() and (origin is None or origin in (f"http://127.0.0.1:{PORT}",f"http://localhost:{PORT}")) and self.headers.get("Sec-Fetch-Site") in ("same-origin","none") and secrets.compare_digest(self.headers.get("X-Console-Request",""),TOKEN)
+        return self.host_ok() and (origin is None or origin in (f"http://127.0.0.1:{self.server.server_port}",f"http://localhost:{self.server.server_port}")) and self.headers.get("Sec-Fetch-Site") in ("same-origin","none") and secrets.compare_digest(self.headers.get("X-Console-Request",""),TOKEN)
     def body(self):
         n=int(self.headers.get("Content-Length","-1"))
         if n<0 or n>MAX_BODY: raise ValueError("Request is too large")
         return json.loads(self.rfile.read(n))
     def do_GET(self):
         if not self.host_ok(): return self.send_json(403,{"error":"Host check failed"})
-        if self.path=="/": return self.static("index.html","text/html; charset=utf-8",True)
-        if self.path=="/app.css": return self.static("app.css","text/css; charset=utf-8")
-        if self.path=="/app.js": return self.static("app.js","text/javascript; charset=utf-8")
+        path=self.path.split("?",1)[0]
+        if path=="/": return self.static("index.html","text/html; charset=utf-8",True, "desktop=1" in self.path)
+        if path=="/app.css": return self.static("app.css","text/css; charset=utf-8")
+        if path=="/app.js": return self.static("app.js","text/javascript; charset=utf-8")
         if self.path=="/api/session": return self.send_json(200,{"token":TOKEN})
         if self.path=="/api/sessions":
             if not self.get_boundary(): return self.send_json(403,{"error":"Request boundary check failed"})
             with LOCK: return self.send_json(200,{"sessions":[safe_view(s) for s in SESSIONS.values()],"limits":{"active":MAX_ACTIVE,"output_bytes":MAX_OUTPUT,"timeouts":TIMEOUTS}})
         self.send_json(404,{"error":"Not found"})
-    def static(self,name,mime,html=False):
-        data=(ROOT/name).read_bytes(); self.send_response(200); self.send_header("Content-Type",mime); self.send_header("Content-Length",str(len(data))); self.send_header("X-Content-Type-Options","nosniff"); self.send_header("Cache-Control","no-cache")
+    def static(self,name,mime,html=False,desktop=False):
+        data=(RESOURCE_ROOT/name).read_bytes()
+        if desktop: data=data.replace(b"<body>",b'<body class="native-shell">',1)
+        if name=="app.css": data+=b"\nbody.native-shell main{padding-top:28px}body.native-shell .hero{margin-bottom:20px;animation:none}body.native-shell .hero h1{font-size:32px;letter-spacing:-1px}body.native-shell .panel{animation:none}\n"
+        self.send_response(200); self.send_header("Content-Type",mime); self.send_header("Content-Length",str(len(data))); self.send_header("X-Content-Type-Options","nosniff"); self.send_header("Cache-Control","no-cache")
         if html: self.send_header("Content-Security-Policy","default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"); self.send_header("Referrer-Policy","no-referrer")
         self.end_headers(); self.wfile.write(data)
     def do_POST(self):
@@ -149,15 +154,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
             sid=secrets.token_hex(16); root=DATA/"sessions"/sid; root.mkdir(parents=True,mode=0o700)
             master,slave=pty.openpty(); rows,cols=24,100; fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack("HHHH",rows,cols,0,0))
             env={"PATH":os.defpath,"PYTHONIOENCODING":"utf-8","HOME":str(root)}
-            proc=subprocess.Popen([sys.executable,"-I",str(ROOT/"worker.py"),profile],cwd=root,env=env,stdin=slave,stdout=slave,stderr=slave,close_fds=True,start_new_session=True)
+            command=([sys.executable,"--local-console-worker",profile] if getattr(sys,"frozen",False) else [sys.executable,"-I",str(ROOT/"worker.py"),profile])
+            proc=subprocess.Popen(command,cwd=root,env=env,stdin=slave,stdout=slave,stderr=slave,close_fds=True,start_new_session=True)
             os.close(slave); session={"id":sid,"label":label.strip(),"profile":profile,"state":"running","proc":proc,"master":master,"output":bytearray(),"started":time.time(),"timeout":timeout,"rows":rows,"cols":cols}
             session["children"]=set(); session["master_closed"]=False; session["parse_tail"]=b""
             SESSIONS[sid]=session; reader=threading.Thread(target=watch,args=(session,),daemon=True); session["reader"]=reader; reader.start()
             return self.send_json(201,{"session":safe_view(session)})
 
+def make_server(host="127.0.0.1", port=PORT):
+    """Return an unstarted, loopback-only server with the app's request policy."""
+    class LocalThreadingHTTPServer(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+
+        def server_bind(self):
+            import socketserver
+            socketserver.TCPServer.server_bind(self)
+            self.server_name = "127.0.0.1"
+            self.server_port = self.socket.getsockname()[1]
+
+    if host != "127.0.0.1":
+        raise ValueError("Local Console only binds to loopback")
+    return LocalThreadingHTTPServer((host, port), Handler)
+
+
 if __name__=="__main__":
     print(f"Local Console listening at http://127.0.0.1:{PORT}",flush=True)
-    server=http.server.ThreadingHTTPServer(("127.0.0.1",PORT),Handler)
+    server=make_server(port=PORT)
     def shutdown(signum,frame): cleanup_all(); raise SystemExit(0)
     signal.signal(signal.SIGTERM,shutdown)
     try: server.serve_forever()

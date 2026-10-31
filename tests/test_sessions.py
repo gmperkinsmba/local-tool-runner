@@ -8,7 +8,7 @@ spec=importlib.util.spec_from_file_location("local_console_server",BASE/"server.
 class Sessions(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.http=app.http.server.ThreadingHTTPServer(("127.0.0.1",0),app.Handler); cls.port=cls.http.server_port; app.PORT=cls.port
+        cls.http=app.make_server(port=0); cls.port=cls.http.server_port
         cls.thread=threading.Thread(target=cls.http.serve_forever,daemon=True); cls.thread.start()
     @classmethod
     def tearDownClass(cls):
@@ -79,6 +79,19 @@ class Sessions(unittest.TestCase):
             if not state: break
             time.sleep(.05)
         self.assertFalse(state,f"child remains unreaped: {state}")
+    def test_application_shutdown_stops_owned_sessions_only(self):
+        session=self.start("tree")
+        line=self.wait_output(session["id"],"CHILD_PID:")["output"]
+        child=int(line.split("CHILD_PID:",1)[1].splitlines()[0])
+        unrelated=subprocess.Popen(["sleep","30"])
+        try:
+            app.cleanup_all()
+            self.assertIsNotNone(app.SESSIONS[session["id"]]["proc"].poll())
+            state=subprocess.run(["ps","-o","stat=","-p",str(child)],capture_output=True,text=True).stdout.strip()
+            self.assertFalse(state,f"owned child remains after app shutdown: {state}")
+            self.assertIsNone(unrelated.poll(),"shutdown touched an unrelated process")
+        finally:
+            unrelated.terminate(); unrelated.wait(timeout=2)
     def test_output_retention_is_capped(self):
         s=self.start("output"); deadline=time.time()+8
         while time.time()<deadline and app.SESSIONS[s["id"]]["proc"].poll() is None: time.sleep(.05)
@@ -94,6 +107,18 @@ class Sessions(unittest.TestCase):
         self.assertEqual(self.call("/api/sessions","GET",headers={"Origin":"https://attacker.invalid"})[0],403)
         self.assertEqual(self.call("/api/sessions","GET",headers={"X-Console-Request":"wrong"})[0],403)
         self.assertEqual(self.call("/api/session","GET",headers={"Host":"attacker.invalid"})[0],403)
+    def test_native_query_serves_compact_local_assets(self):
+        client=http.client.HTTPConnection("127.0.0.1",self.port,timeout=3)
+        try:
+            client.request("GET","/?desktop=1",headers={"Host":f"127.0.0.1:{self.port}"})
+            response=client.getresponse();page=response.read().decode()
+            self.assertEqual(response.status,200);self.assertIn('class="native-shell"',page)
+            self.assertIn("Local Console",page)
+            client.request("GET","/app.css",headers={"Host":f"127.0.0.1:{self.port}"})
+            css=client.getresponse();style=css.read().decode()
+            self.assertIn("body.native-shell",style)
+        finally:
+            client.close()
     def test_maximum_four_running_sessions(self):
         for n in range(app.MAX_ACTIVE): self.start("progress",f"slot {n}")
         status,_=self.call("/api/sessions","POST",{"profile":"progress","label":"overflow","timeout":60})

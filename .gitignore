@@ -2,7 +2,11 @@ __pycache__/
 *.py[cod]
 *.log
 .venv/
+.desktop-venv/
 venv/
+build/
+dist/
+*.app/
 runtime/
 sessions/
 *.db
